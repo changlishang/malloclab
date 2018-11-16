@@ -19,7 +19,7 @@
  * If you want debugging output, uncomment the following.  Be sure not
  * to have debugging enabled in your final submission
  */
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 /* When debugging is enabled, the underlying functions get called */
@@ -76,7 +76,7 @@ typedef struct block
     /* Header contains size + allocation flag */
     word_t header;
     struct block* prev;
-    struct block* next;
+    struct block* next; 
     /*
      * We don't know how big the payload will be.  Declaring it as an
      * array of size 0 allows computing its starting address using
@@ -125,7 +125,6 @@ static block_t *find_prev(block_t *block);
 bool mm_checkheap(int lineno);
 
 
-
 static void remove_free_block(block_t* pointer);
 static void insert_free_block(block_t* pointer);
 static int  explict_list_check(int lineno, int explict_list_check);
@@ -149,23 +148,14 @@ bool mm_init(void)
         return false;
     }
     
-    // mm_checkheap(153);
-
     start[0] = pack(0, true); // Prologue footer
     start[1] = pack(0, true); // Epilogue header
     // Heap starts with first block header (epilogue)
     heap_listp = (block_t *) &(start[1]);
 
-    // heap_listp->next = NULL;
-    // heap_listp->prev = NULL;
-
-    // free_listp = heap_listp;
-    // Extend the empty heap with a free block of chunksize bytes
-    // if (extend_heap(chunksize) == NULL)
-    // {
-    //     return false;
-    // }
-    // return true;
+    heap_listp->prev = NULL;
+    heap_listp->next = NULL;
+    free_listp = NULL;
 
     block_t* mm_init_block = extend_heap(chunksize);
     if (mm_init_block == NULL)
@@ -207,8 +197,8 @@ void *malloc(size_t size)
         dbg_ensures(mm_checkheap);
         return bp;
     }
-    mm_checkheap(210);
-    printf("mm_checkheap finish\n");
+    // mm_checkheap(210);
+    dbg_printf("mm_checkheap finish\n");
     // Adjust block size to include overhead and to meet alignment requirements
     asize = round_up(size, dsize) + dsize;
     // Search the free list for a fit
@@ -220,11 +210,11 @@ void *malloc(size_t size)
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
         // mm_checkheap(216);
-        if (free_listp == NULL) {
-            free_listp = block;
-            free_listp->prev = NULL;
-            free_listp->next = NULL;
-        }
+        // if (free_listp == NULL) {
+        //     free_listp = block;
+        //     free_listp->prev = NULL;
+        //     free_listp->next = NULL;
+        // }
 
         if (block == NULL) // extend_heap returns an error
         {
@@ -469,13 +459,13 @@ static block_t *find_fit(size_t asize)
     for (block = free_listp; block != NULL;
                              block = block->next)
     {
-        dbg_printf("return not null\n");
+        printf("block : %p\n", block);
         if (!(get_alloc(block)) && (asize <= get_size(block)))
         {
             return block;
         }
     }
-    dbg_printf("return null\n");
+    printf("block : %p\n", block);
     return NULL; // no fit found
 }
 
@@ -483,9 +473,10 @@ static block_t *find_fit(size_t asize)
  * remove free blocks in from the free list
  */
 static void remove_free_block(block_t* pointer) {
-    if (free_listp == NULL) {
-        return;
-    }
+    // if (free_listp == NULL) {
+    //     return;
+    // }
+    printf("remove address: %p\n", pointer);
 
     block_t* block_prev = pointer->prev;
     block_t* block_next = pointer->next;
@@ -522,15 +513,7 @@ static void insert_free_block(block_t* pointer) {
         pointer->prev = NULL;
         return;
     }
-    // dbg_printf("free_listp is not null\n");
 
-    // pointer->prev = NULL;
-    // pointer->next = free_listp;
-    // free_listp->prev = pointer;
-
-    // /* update the free_listp */
-    // free_listp = pointer;
-    // dbg_printf("free_listp is: %lu\n", free_listp->header;
     block_t* tmp = free_listp;
     pointer->next = tmp;
     tmp->prev = pointer;
@@ -775,7 +758,7 @@ bool mm_checkheap(int lineno)
 }
 
 static int explict_list_check(int lineno, int explicit_free_count) {
-    printf("entering explicit list check\n");
+    dbg_printf("entering explicit list check\n");
     block_t *pointer = free_listp;
 
     if (free_listp == NULL) {
@@ -795,7 +778,7 @@ static int explict_list_check(int lineno, int explicit_free_count) {
         explicit_free_count++;
         pointer = pointer->next;
     }
-    printf("normally exit explict_list_check\n");
+    dbg_printf("normally exit explict_list_check\n");
     return explicit_free_count;
 }
 
