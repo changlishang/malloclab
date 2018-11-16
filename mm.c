@@ -19,7 +19,7 @@
  * If you want debugging output, uncomment the following.  Be sure not
  * to have debugging enabled in your final submission
  */
-//#define DEBUG
+// #define DEBUG
 
 #ifdef DEBUG
 /* When debugging is enabled, the underlying functions get called */
@@ -153,8 +153,8 @@ bool mm_init(void)
     // Heap starts with first block header (epilogue)
     heap_listp = (block_t *) &(start[1]);
 
-    heap_listp->prev = NULL;
-    heap_listp->next = NULL;
+    // heap_listp->prev = NULL;
+    // heap_listp->next = NULL; 
     free_listp = NULL;
 
     block_t* mm_init_block = extend_heap(chunksize);
