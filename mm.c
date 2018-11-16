@@ -227,7 +227,7 @@ void *malloc(size_t size)
     bp = header_to_payload(block);
 
     // mm_checkheap(246);
-    printf("Malloc size %zd on address %p.\n", size, bp);
+    dbg_printf("Malloc size %zd on address %p.\n", size, bp);
     dbg_ensures(mm_checkheap);
     return bp;
 } 
@@ -459,13 +459,13 @@ static block_t *find_fit(size_t asize)
     for (block = free_listp; block != NULL;
                              block = block->next)
     {
-        printf("block : %p\n", block);
+        dbg_printf("block : %p\n", block);
         if (!(get_alloc(block)) && (asize <= get_size(block)))
         {
             return block;
         }
     }
-    printf("block : %p\n", block);
+    dbg_printf("block : %p\n", block);
     return NULL; // no fit found
 }
 
@@ -476,7 +476,7 @@ static void remove_free_block(block_t* pointer) {
     // if (free_listp == NULL) {
     //     return;
     // }
-    printf("remove address: %p\n", pointer);
+    dbg_printf("remove address: %p\n", pointer);
 
     block_t* block_prev = pointer->prev;
     block_t* block_next = pointer->next;
@@ -762,7 +762,7 @@ static int explict_list_check(int lineno, int explicit_free_count) {
     block_t *pointer = free_listp;
 
     if (free_listp == NULL) {
-        printf("free_listp is NULL\n");
+        dbg_printf("free_listp is NULL\n");
         return explicit_free_count;
     }
     while (pointer != NULL) {
