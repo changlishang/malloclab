@@ -19,7 +19,7 @@
  * If you want debugging output, uncomment the following.  Be sure not
  * to have debugging enabled in your final submission
  */
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 /* When debugging is enabled, the underlying functions get called */
@@ -157,15 +157,24 @@ bool mm_init(void)
     // Heap starts with first block header (epilogue)
     heap_listp = (block_t *) &(start[1]);
 
-    heap_listp->next = NULL;
-    heap_listp->prev = NULL;
+    // heap_listp->next = NULL;
+    // heap_listp->prev = NULL;
 
-    free_listp = heap_listp;
+    // free_listp = heap_listp;
     // Extend the empty heap with a free block of chunksize bytes
-    if (extend_heap(chunksize) == NULL)
+    // if (extend_heap(chunksize) == NULL)
+    // {
+    //     return false;
+    // }
+    // return true;
+
+    block_t* mm_init_block = extend_heap(chunksize);
+    if (mm_init_block == NULL)
     {
         return false;
     }
+    dbg_printf("mm_init_block: %p\n", mm_init_block);
+    dbg_printf("mm_init's pointer's header: %lu\n", mm_init_block->header);
     return true;
 }
 
@@ -193,30 +202,30 @@ void *malloc(size_t size)
     {
         mm_init();
     }
-
+    dbg_printf("input size: %lu\n", size);
     if (size == 0) // Ignore spurious request
     {
         dbg_ensures(mm_checkheap);
         return bp;
     }
-    printf("Address of heap_listp: %p\n", heap_listp);
-    printf("Address of free_listp: %p\n", free_listp);
-    mm_checkheap(203);
+    dbg_printf("Address of heap_listp: %p\n", heap_listp);
+    dbg_printf("Address of free_listp: %p\n", free_listp);
+    // mm_checkheap(203);
     // Adjust block size to include overhead and to meet alignment requirements
     asize = round_up(size, dsize) + dsize;
-    printf("asize is: %lu\n", asize);
-    printf("dsize is: %lu\n", dsize);
+    dbg_printf("asize is: %lu\n", asize);
+    dbg_printf("dsize is: %lu\n", dsize);
     // Search the free list for a fit
     block = find_fit(asize);
 
-    printf("find_fit finish\n");
+    dbg_printf("find_fit finish\n");
     // If no fit is found, request more memory, and then and place the block
     if (block == NULL)
     {
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
-        mm_checkheap(216);
-        printf("block not found\n");
+        // mm_checkheap(216);
+        dbg_printf("block not found\n");
         if (free_listp == NULL) {
             free_listp = block;
             free_listp->prev = NULL;
@@ -230,11 +239,12 @@ void *malloc(size_t size)
 
     }
 
-    printf("place size\n");
+    dbg_printf("place size\n");
     place(block, asize);
     bp = header_to_payload(block);
 
-    dbg_printf("Malloc size %zd on address %p.\n", size, bp);
+    // mm_checkheap(246);
+    printf("Malloc size %zd on address %p.\n", size, bp);
     dbg_ensures(mm_checkheap);
     return bp;
 } 
@@ -352,20 +362,20 @@ static block_t *extend_heap(size_t size)
     {
         return NULL;
     }
-    printf("extend_heap start: before ini free block header and footers\n");
+    dbg_printf("extend_heap start: before ini free block header and footers\n");
     // Initialize free block header/footer 
     block_t *block = payload_to_header(bp);
     write_header(block, size, false);
-    printf("examine initialized header\n");
-    printf("header: %lu\n", block->header);
+    dbg_printf("examine initialized header\n");
+    dbg_printf("header: %lu\n", block->header);
     write_footer(block, size, false);
-    printf("footer: %lu\n", *find_prev_footer(find_next(block)));
+    dbg_printf("footer: %lu\n", *find_prev_footer(find_next(block)));
     // Create new epilogue header
     block_t *block_next = find_next(block);
     write_header(block_next, 0, true);
 
-    printf("examine next block header\n");
-    printf("header: %lu\n", block_next->header);
+    dbg_printf("examine next block header\n");
+    dbg_printf("header: %lu\n", block_next->header);
     // Coalesce in case the previous block was free
     return coalesce(block);
 }
@@ -386,39 +396,39 @@ static block_t *coalesce(block_t * block)
 
     if (prev_alloc && next_alloc)              // Case 1
     {
+        dbg_printf("case1\n");
         insert_free_block(block);
-        printf("case1\n");
         return block;
     }
 
     else if (prev_alloc && !next_alloc)        // Case 2
     {
+        dbg_printf("case2\n");
         size += get_size(block_next);
         remove_free_block(find_next(block));
         write_header(block, size, false);
         write_footer(block, size, false);
-        printf("case2\n");
     }
 
     else if (!prev_alloc && next_alloc)        // Case 3
     {
+        dbg_printf("case3\n");
         size += get_size(block_prev);
         remove_free_block(find_prev(block));
         write_header(block_prev, size, false);
         write_footer(block_prev, size, false);
         block = block_prev;
-        printf("case3\n");
     }
 
-    else                                        // Case 4
+    else                     // Case 4
     {
+        dbg_printf("case4\n");
         size += get_size(block_next) + get_size(block_prev);
         write_header(block_prev, size, false);
         write_footer(block_prev, size, false);
         remove_free_block(find_next(block));
         remove_free_block(find_prev(block));
         block = block_prev;
-        printf("case4\n");
     }
     insert_free_block(block);   
     return block;
@@ -463,18 +473,19 @@ static void place(block_t *block, size_t asize)
  */
 static block_t *find_fit(size_t asize)
 {
-    printf("entering find_fit\n");
+    dbg_printf("entering find_fit\n");
     block_t *block;
 
     for (block = free_listp; block != NULL;
                              block = block->next)
     {
-
+        dbg_printf("return not null\n");
         if (!(get_alloc(block)) && (asize <= get_size(block)))
         {
             return block;
         }
     }
+    dbg_printf("return null\n");
     return NULL; // no fit found
 }
 
@@ -512,18 +523,26 @@ static void remove_free_block(block_t* pointer) {
 static void insert_free_block(block_t* pointer) {
     /* if free_listp is NULL, then just add */
     if (free_listp == NULL) {
+        dbg_printf("free_listp is null\n");
         pointer->next = NULL;
         pointer->prev = NULL;
         free_listp = pointer;
         return;
     }
+    // dbg_printf("free_listp is not null\n");
 
-    pointer->prev = NULL;
-    pointer->next = free_listp;
-    free_listp->prev = pointer;
+    // pointer->prev = NULL;
+    // pointer->next = free_listp;
+    // free_listp->prev = pointer;
 
-    /* update the free_listp */
+    // /* update the free_listp */
+    // free_listp = pointer;
+    // dbg_printf("free_listp is: %lu\n", free_listp->header;
+    block_t* tmp = free_listp;
+    pointer -> next = tmp;
+    tmp -> prev = pointer;
     free_listp = pointer;
+    pointer -> prev = NULL;
 }
 
 /*
@@ -540,9 +559,9 @@ static size_t max(size_t x, size_t y)
  */
 static size_t round_up(size_t size, size_t n)
 {
-    printf("entering round_up\n");
-    size_t return_value = (n * ((size + (n-1)) / n));
-    printf("size: round_up value is: %lu\n", return_value);
+    // dbg_printf("entering round_up\n");
+    // size_t return_value = (n * ((size + (n-1)) / n));
+    // dbg_printf("size: round_up value is: %lu\n", return_value);
     return (n * ((size + (n-1)) / n));
 }
 
