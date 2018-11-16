@@ -75,7 +75,6 @@ typedef struct block
 {
     /* Header contains size + allocation flag */
     word_t header;
-
     struct block* prev;
     struct block* next;
     /*
@@ -423,11 +422,11 @@ static block_t *coalesce(block_t * block)
     else                     // Case 4
     {
         dbg_printf("case4\n");
+        remove_free_block(block_prev);
+        remove_free_block(block_next);
         size += get_size(block_next) + get_size(block_prev);
         write_header(block_prev, size, false);
         write_footer(block_prev, size, false);
-        remove_free_block(block_prev);
-        remove_free_block(block_next);
         block = block_prev;
     }
     insert_free_block(block);   
@@ -496,25 +495,28 @@ static void remove_free_block(block_t* pointer) {
     if (free_listp == NULL) {
         return;
     }
+
+    block_t* block_prev = pointer->prev;
+    block_t* block_next = pointer->next;
     /* case 1: remove block when there is only one block in the list */
-    if (find_prev(pointer) == NULL && find_next(pointer) == NULL) {
+    if (block_prev == NULL && block_next == NULL) {
         free_listp = NULL;
     } 
     /* Case 2: remove the top element of the list*/
-    if (find_prev(pointer) == NULL && find_next(pointer) != NULL) {
-        free_listp = find_next(free_listp);
+    if (block_prev == NULL && block_next != NULL) {
+        free_listp = block_next;
         free_listp->prev = NULL;
         pointer->next = NULL;
     }
     /*Case 3: remove the last element of the list */
-    if (find_prev(pointer) != NULL && find_next(pointer) == NULL) {
-        find_prev(pointer)->next = NULL;
+    if (block_prev != NULL && block_next == NULL) {
+        block_prev->next = NULL;
         pointer->prev = NULL;
     }
     /*Case 4: remove the element in the middle*/
-    if (find_prev(pointer) != NULL && find_next(pointer) != NULL) {
-        find_prev(pointer)->next = find_next(pointer);
-        find_next(pointer)->prev = find_prev(pointer);
+    if (block_prev != NULL && block_next != NULL) {
+        block_prev->next = block_next;
+        block_next->prev = block_prev;
         pointer->prev = NULL;
         pointer->next = NULL;
     }
@@ -524,9 +526,9 @@ static void insert_free_block(block_t* pointer) {
     /* if free_listp is NULL, then just add */
     if (free_listp == NULL) {
         dbg_printf("free_listp is null\n");
+        free_listp = pointer;
         pointer->next = NULL;
         pointer->prev = NULL;
-        free_listp = pointer;
         return;
     }
     // dbg_printf("free_listp is not null\n");
@@ -539,10 +541,10 @@ static void insert_free_block(block_t* pointer) {
     // free_listp = pointer;
     // dbg_printf("free_listp is: %lu\n", free_listp->header;
     block_t* tmp = free_listp;
-    pointer -> next = tmp;
-    tmp -> prev = pointer;
+    pointer->next = tmp;
+    tmp->prev = pointer;
     free_listp = pointer;
-    pointer -> prev = NULL;
+    pointer->prev = NULL;
 }
 
 /*
