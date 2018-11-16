@@ -19,7 +19,7 @@
  * If you want debugging output, uncomment the following.  Be sure not
  * to have debugging enabled in your final submission
  */
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 /* When debugging is enabled, the underlying functions get called */
@@ -209,10 +209,16 @@ void *malloc(size_t size)
     {  
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
+        if (free_listp == NULL) {
+            free_listp = block;
+            free_listp->prev = NULL;
+            free_listp->next = NULL;
+        }
         if (block == NULL) // extend_heap returns an error
         {
             return bp;
         }
+
 
     }
 
@@ -366,6 +372,7 @@ static block_t *coalesce(block_t * block)
 
     if (prev_alloc && next_alloc)              // Case 1
     {
+        insert_free_block(block);
         return block;
     }
 
@@ -416,7 +423,10 @@ static void place(block_t *block, size_t asize)
         write_header(block, asize, true);
         write_footer(block, asize, true);
         remove_free_block(block);
+
         block_next = find_next(block);
+        insert_free_block(block_next);
+
         write_header(block_next, csize-asize, false);
         write_footer(block_next, csize-asize, false);
     }
@@ -436,9 +446,9 @@ static void place(block_t *block, size_t asize)
 static block_t *find_fit(size_t asize)
 {
     block_t *block;
-
-    for (block = heap_listp; get_size(block) > 0;
-                             block = find_next(block))
+    
+    for (block = free_listp; block != NULL;
+                             block = block->next)
     {
 
         if (!(get_alloc(block)) && (asize <= get_size(block)))
@@ -464,15 +474,19 @@ static void remove_free_block(block_t* pointer) {
     if (find_prev(pointer) == NULL && find_next(pointer) != NULL) {
         free_listp = find_next(free_listp);
         free_listp->prev = NULL;
+        pointer->next = NULL;
     }
     /*Case 3: remove the last element of the list */
     if (find_prev(pointer) != NULL && find_next(pointer) == NULL) {
         find_prev(pointer)->next = NULL;
+        pointer->prev = NULL;
     }
     /*Case 4: remove the element in the middle*/
     if (find_prev(pointer) != NULL && find_next(pointer) != NULL) {
         find_prev(pointer)->next = find_next(pointer);
         find_next(pointer)->prev = find_prev(pointer);
+        pointer->prev = NULL;
+        pointer->next = NULL;
     }
 }
 
@@ -637,7 +651,7 @@ static block_t *payload_to_header(void *bp)
  */
 static void *header_to_payload(block_t *block)
 {
-    return (void *)(block->payload -16); /* change block->payload to block->prev */ //<Important>//
+    return (void *)(block->payload - 16); /* change block->payload to block->prev */ //<Important>//
 }
 
 /*
@@ -759,8 +773,6 @@ bool mm_checkheap(int lineno)
     
     explict_list_check(lineno);
 
-
-    
 
     return true;
 
