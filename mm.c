@@ -405,7 +405,7 @@ static block_t *coalesce(block_t * block)
     {
         dbg_printf("case2\n");
         size += get_size(block_next);
-        remove_free_block(find_next(block));
+        remove_free_block(block_next);
         write_header(block, size, false);
         write_footer(block, size, false);
     }
@@ -414,7 +414,7 @@ static block_t *coalesce(block_t * block)
     {
         dbg_printf("case3\n");
         size += get_size(block_prev);
-        remove_free_block(find_prev(block));
+        remove_free_block(block_prev);
         write_header(block_prev, size, false);
         write_footer(block_prev, size, false);
         block = block_prev;
@@ -426,8 +426,8 @@ static block_t *coalesce(block_t * block)
         size += get_size(block_next) + get_size(block_prev);
         write_header(block_prev, size, false);
         write_footer(block_prev, size, false);
-        remove_free_block(find_next(block));
-        remove_free_block(find_prev(block));
+        remove_free_block(block_prev);
+        remove_free_block(block_next);
         block = block_prev;
     }
     insert_free_block(block);   
