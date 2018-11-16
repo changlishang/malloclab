@@ -19,7 +19,7 @@
  * If you want debugging output, uncomment the following.  Be sure not
  * to have debugging enabled in your final submission
  */
-//#define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 /* When debugging is enabled, the underlying functions get called */
@@ -129,7 +129,7 @@ bool mm_checkheap(int lineno);
 
 static void remove_free_block(block_t* pointer);
 static void insert_free_block(block_t* pointer);
-static void explict_list_check(int lineno);
+static int  explict_list_check(int lineno, int explict_list_check);
 
 
 
@@ -149,12 +149,14 @@ bool mm_init(void)
     {
         return false;
     }
+    
+    // mm_checkheap(153);
 
     start[0] = pack(0, true); // Prologue footer
     start[1] = pack(0, true); // Epilogue header
     // Heap starts with first block header (epilogue)
     heap_listp = (block_t *) &(start[1]);
-    
+
     heap_listp->next = NULL;
     heap_listp->prev = NULL;
 
@@ -197,31 +199,38 @@ void *malloc(size_t size)
         dbg_ensures(mm_checkheap);
         return bp;
     }
-
+    printf("Address of heap_listp: %p\n", heap_listp);
+    printf("Address of free_listp: %p\n", free_listp);
+    mm_checkheap(203);
     // Adjust block size to include overhead and to meet alignment requirements
     asize = round_up(size, dsize) + dsize;
-
+    printf("asize is: %lu\n", asize);
+    printf("dsize is: %lu\n", dsize);
     // Search the free list for a fit
     block = find_fit(asize);
 
+    printf("find_fit finish\n");
     // If no fit is found, request more memory, and then and place the block
     if (block == NULL)
-    {  
+    {
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
+        mm_checkheap(216);
+        printf("block not found\n");
         if (free_listp == NULL) {
             free_listp = block;
             free_listp->prev = NULL;
             free_listp->next = NULL;
         }
+
         if (block == NULL) // extend_heap returns an error
         {
             return bp;
         }
 
-
     }
 
+    printf("place size\n");
     place(block, asize);
     bp = header_to_payload(block);
 
@@ -343,15 +352,20 @@ static block_t *extend_heap(size_t size)
     {
         return NULL;
     }
-    
+    printf("extend_heap start: before ini free block header and footers\n");
     // Initialize free block header/footer 
     block_t *block = payload_to_header(bp);
     write_header(block, size, false);
+    printf("examine initialized header\n");
+    printf("header: %lu\n", block->header);
     write_footer(block, size, false);
+    printf("footer: %lu\n", *find_prev_footer(find_next(block)));
     // Create new epilogue header
     block_t *block_next = find_next(block);
     write_header(block_next, 0, true);
 
+    printf("examine next block header\n");
+    printf("header: %lu\n", block_next->header);
     // Coalesce in case the previous block was free
     return coalesce(block);
 }
@@ -373,6 +387,7 @@ static block_t *coalesce(block_t * block)
     if (prev_alloc && next_alloc)              // Case 1
     {
         insert_free_block(block);
+        printf("case1\n");
         return block;
     }
 
@@ -382,6 +397,7 @@ static block_t *coalesce(block_t * block)
         remove_free_block(find_next(block));
         write_header(block, size, false);
         write_footer(block, size, false);
+        printf("case2\n");
     }
 
     else if (!prev_alloc && next_alloc)        // Case 3
@@ -391,6 +407,7 @@ static block_t *coalesce(block_t * block)
         write_header(block_prev, size, false);
         write_footer(block_prev, size, false);
         block = block_prev;
+        printf("case3\n");
     }
 
     else                                        // Case 4
@@ -401,6 +418,7 @@ static block_t *coalesce(block_t * block)
         remove_free_block(find_next(block));
         remove_free_block(find_prev(block));
         block = block_prev;
+        printf("case4\n");
     }
     insert_free_block(block);   
     return block;
@@ -417,12 +435,13 @@ static void place(block_t *block, size_t asize)
 {
     size_t csize = get_size(block);
 
+    remove_free_block(block);
+
     if ((csize - asize) >= min_block_size)
     {
         block_t *block_next;
         write_header(block, asize, true);
         write_footer(block, asize, true);
-        remove_free_block(block);
 
         block_next = find_next(block);
         insert_free_block(block_next);
@@ -435,7 +454,6 @@ static void place(block_t *block, size_t asize)
     { 
         write_header(block, csize, true);
         write_footer(block, csize, true);
-        remove_free_block(block);
     }
 }
 
@@ -445,8 +463,9 @@ static void place(block_t *block, size_t asize)
  */
 static block_t *find_fit(size_t asize)
 {
+    printf("entering find_fit\n");
     block_t *block;
-    
+
     for (block = free_listp; block != NULL;
                              block = block->next)
     {
@@ -521,6 +540,9 @@ static size_t max(size_t x, size_t y)
  */
 static size_t round_up(size_t size, size_t n)
 {
+    printf("entering round_up\n");
+    size_t return_value = (n * ((size + (n-1)) / n));
+    printf("size: round_up value is: %lu\n", return_value);
     return (n * ((size + (n-1)) / n));
 }
 
@@ -597,7 +619,7 @@ static void write_header(block_t *block, size_t size, bool alloc)
  */
 static void write_footer(block_t *block, size_t size, bool alloc)
 {
-    word_t *footerp = (word_t *)((block->payload) - 16 + get_size(block) - dsize);  /* pay attention to 16 and char() */ 
+    word_t *footerp = (word_t *)((block->payload) - 16 + get_size(block) - dsize);  /* pay attention to 16 and char() */ // <Important>
     *footerp = pack(size, alloc);
 }
 
@@ -702,10 +724,17 @@ static bool aligned(const void *p) {
 bool mm_checkheap(int lineno)  
 {   
     /* Check prologue */ 
-    if (get_size(heap_listp) != min_block_size || get_alloc(heap_listp)) {
-        dbg_printf("Address: %p is Prologue Error \n", heap_listp);
+    // if (get_size(heap_listp) != min_block_size || get_alloc(heap_listp)) {
+    //     dbg_printf("Address: %p is Prologue Error \n", heap_listp);
+    //     return false;
+    // }
+    if (heap_listp == NULL) {
+        dbg_printf("Address: %p : is null in lineno: %d\n", heap_listp, lineno);
         return false;
     }
+
+    int implicit_free_count = 0;
+    int explicit_free_count = 0;
 
     block_t* block_prev;
     block_t* block_next;
@@ -717,7 +746,8 @@ bool mm_checkheap(int lineno)
 
     size_t size_prev;
 
-    block_prev = find_next(heap_listp);
+    // block_prev = find_next(heap_listp);
+    block_prev = heap_listp;
 
     while (!get_size(block_prev) == 0 && get_alloc(block_prev) == true) {
         header_prev = &block_prev->header;
@@ -767,36 +797,39 @@ bool mm_checkheap(int lineno)
             dbg_printf("two consecutive free blocks in the heap in lineno: %d\n", lineno);
             return false;
         }
+
+        if (get_alloc(block_prev) == false) {
+            implicit_free_count++;
+        }
         block_next = block_prev;
     }
 
-    
-    explict_list_check(lineno);
-
+    explicit_free_count = explict_list_check(lineno, explicit_free_count);
 
     return true;
 
 }
 
-static void explict_list_check(int lineno) {
+static int explict_list_check(int lineno, int explicit_free_count) {
     block_t *pointer = free_listp;
 
     if (free_listp == NULL) {
         printf("free_listp is NULL\n");
-        return;
+        return explicit_free_count;
     }
     while (pointer != NULL) {
-        if (find_next(pointer) != NULL && find_prev(pointer) != NULL) {
-            if (find_prev(find_next(pointer)) != find_next(find_prev(pointer))) {
+        if (pointer->next != NULL && pointer->prev != NULL) {
+            if (pointer->prev->next != pointer->next->prev) {
                 dbg_printf("Address: %p: next/prev not consistent in lineno: %d\n",pointer, lineno);
-                return;
+                return explicit_free_count;
             }
         }
         if (check_in_heap(pointer, lineno) == false) {
-            return;
+            return explicit_free_count;
         }
-        pointer = find_next(pointer);
+        explicit_free_count++;
+        pointer = pointer->next;
     }
-    return;
+    return explicit_free_count;
 }
 
