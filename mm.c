@@ -76,7 +76,7 @@ typedef struct block
     /* Header contains size + allocation flag */
     word_t header;
     struct block* prev;
-    struct block* next; 
+    struct block* next;
     /*
      * We don't know how big the payload will be.  Declaring it as an
      * array of size 0 allows computing its starting address using
@@ -93,8 +93,8 @@ typedef struct block
 /* Global variables */
 /* Pointer to first block */
 static block_t *heap_listp = NULL;
-static block_t *free_listp = NULL;
-
+static block_t *free_listp;
+static block_t *free_listp_tail;
 /* Function prototypes for internal helper routines */
 static block_t *extend_heap(size_t size);
 static void place(block_t *block, size_t asize);
@@ -153,9 +153,8 @@ bool mm_init(void)
     // Heap starts with first block header (epilogue)
     heap_listp = (block_t *) &(start[1]);
 
-    // heap_listp->prev = NULL;
-    // heap_listp->next = NULL; 
     free_listp = NULL;
+    free_listp_tail = NULL;
 
     block_t* mm_init_block = extend_heap(chunksize);
     if (mm_init_block == NULL)
@@ -209,12 +208,6 @@ void *malloc(size_t size)
     {
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
-        // mm_checkheap(216);
-        // if (free_listp == NULL) {
-        //     free_listp = block;
-        //     free_listp->prev = NULL;
-        //     free_listp->next = NULL;
-        // }
 
         if (block == NULL) // extend_heap returns an error
         {
@@ -456,8 +449,8 @@ static block_t *find_fit(size_t asize)
     dbg_printf("entering find_fit\n");
     block_t *block;
 
-    for (block = free_listp; block != NULL;
-                             block = block->next)
+    for (block = free_listp_tail; block != NULL;
+                             block = block->prev)
     {
         dbg_printf("block : %p\n", block);
         if (!(get_alloc(block)) && (asize <= get_size(block)))
@@ -474,6 +467,7 @@ static block_t *find_fit(size_t asize)
  */
 static void remove_free_block(block_t* pointer) {
     // if (free_listp == NULL) {
+    //     printf("free_listp is null\n");
     //     return;
     // }
     dbg_printf("remove address: %p\n", pointer);
@@ -483,6 +477,7 @@ static void remove_free_block(block_t* pointer) {
     /* case 1: remove block when there is only one block in the list */
     if (block_prev == NULL && block_next == NULL) {
         free_listp = NULL;
+        free_listp_tail = NULL;
     } 
     /* Case 2: remove the top element of the list*/
     if (block_prev == NULL && block_next != NULL) {
@@ -492,6 +487,7 @@ static void remove_free_block(block_t* pointer) {
     }
     /*Case 3: remove the last element of the list */
     if (block_prev != NULL && block_next == NULL) {
+        free_listp_tail = block_prev;
         block_prev->next = NULL;
         pointer->prev = NULL;
     }
@@ -509,16 +505,25 @@ static void insert_free_block(block_t* pointer) {
     if (free_listp == NULL) {
         dbg_printf("free_listp is null\n");
         free_listp = pointer;
-        pointer->next = NULL;
+        free_listp_tail = pointer;
         pointer->prev = NULL;
+        pointer->next = NULL;
         return;
     }
 
-    block_t* tmp = free_listp;
-    pointer->next = tmp;
-    tmp->prev = pointer;
-    free_listp = pointer;
+    // block_t* tmp = free_listp;
+    // pointer->next = tmp;
+    // tmp->prev = pointer;
+    // free_listp = pointer;
+    // pointer->prev = NULL;
+
     pointer->prev = NULL;
+    pointer->next = free_listp;
+    free_listp->prev = pointer;
+     /* update the free_listp */
+    free_listp = pointer;
+
+
 }
 
 /*
