@@ -93,6 +93,8 @@ typedef struct block
 static block_t *free_listp_array[LIST_NUM];
 static block_t *free_listp_array_tail[LIST_NUM];
 // static size_t lines[LIST_NUM] = {1, 70, 150, 300, 840, 1800};
+// static block_t *best_fit;
+
 /* Global variables */
 /* Pointer to first block */
 static block_t *heap_listp = NULL;
@@ -200,7 +202,6 @@ void *malloc(size_t size)
         dbg_ensures(mm_checkheap);
         return bp;
     }
-    // mm_checkheap(210);
     // Adjust block size to include overhead and to meet alignment requirements
     asize = round_up(size, dsize) + dsize;
     // Search the free list for a fit
@@ -222,7 +223,6 @@ void *malloc(size_t size)
     place(block, asize);
     bp = header_to_payload(block);
 
-    // mm_checkheap(246);
     dbg_printf("Malloc size %zd on address %p.\n", size, bp);
     dbg_ensures(mm_checkheap);
     return bp;
@@ -248,7 +248,6 @@ void free(void *bp)
     coalesce(block);
 
 }
-
 /*
  * realloc: returns a pointer to an allocated region of at least size bytes:
  *          if ptrv is NULL, then call malloc(size);
@@ -466,7 +465,7 @@ static int get_number(size_t size) {
     else {
         return 6;
     }
-}
+} 
 /*
  * find_fit: Looks for a free block with at least asize bytes with
  *           first-fit policy. Returns NULL if none is found.
@@ -476,10 +475,18 @@ static block_t *find_fit(size_t asize)
     dbg_printf("entering find_fit\n");
     block_t *block;
 
+    int count = 0;
+    block_t *best_fit = NULL;
     for (int i = get_number(asize); i < LIST_NUM; ++i) {
         for (block = free_listp_array_tail[i]; block != NULL; block = block->prev) {
             if ((asize <= get_size(block))) {
-                return block;
+                count++;
+                if (count == 1) {
+                    best_fit = block;
+                } else if (get_size(block) < get_size(best_fit)) {
+                    best_fit = block;
+                }
+                return best_fit;
             }
         }
     }
@@ -536,7 +543,6 @@ static void insert_free_block(block_t* pointer) {
     free_listp_array[free_list_number]->prev = pointer;
      /* update the free_listp */
     free_listp_array[free_list_number] = pointer;
-
 
 }
 
@@ -637,7 +643,6 @@ static void write_footer(block_t *block, size_t size, bool alloc)
     *footerp = pack(size, alloc);
 }
 
-
 /*
  * find_next: returns the next consecutive block on the heap by adding the
  *            size of the block.
@@ -736,68 +741,116 @@ static bool aligned(const void *p) {
  *               to identify the line number of the call site.
  */
 bool mm_checkheap(int lineno)  
-{   
-    // block_t* heap_checker_head = heap_listp;
-    // block_t* heap_checker_next;
-    // word_t* prev_footer;
-    // int explicit_free_count = 0;
-    // int implicit_free_count = 0;
+{       
+    /* Check prologue */ 
+    if (get_size(heap_listp) != min_block_size || get_alloc(heap_listp)) {
+        dbg_printf("Address: %p is Prologue Error \n", heap_listp);
+        return false;
+    }
+    if (heap_listp == NULL) {
+        dbg_printf("Address: %p : is null in lineno: %d\n", heap_listp, lineno);
+        return false;
+    }
 
-    // while (get_size(heap_checker_head) != 0) {
-    //     heap_checker_next = find_next(heap_checker_head);
-    //     prev_footer = find_prev_footer(heap_checker_next);
-    //     if (heap_checker_head != heap_listp && (extract_size(*prev_footer) != get_size(heap_checker_head)
-    //          || extract_alloc(*prev_footer) != get_alloc(heap_checker_head))) {
-    //         dbg_printf("Footer and Header not matched in %d\n", lineno);
-    //         return false;
-    //     }
-    //     if (get_size(heap_checker_head) % 16 != 0 || get_size(heap_checker_head) < 32) {
-    //         dbg_printf("Wrong block size in %d\n", lineno);
-    //         return false;
-    //     }
-    //     if (!aligned(header_to_payload(heap_checker_head))) {
-    //         dbg_printf("Payload pointer not aligned in %d\n", lineno);
-    //         return false;
-    //     }
-    //     if (get_alloc(heap_checker_head) == false) {
-    //         implicit_free_count++;
-    //     }
-    //     heap_checker_head = heap_checker_next;
-    // }
+    int implicit_free_count = 0;
+    int explicit_free_count = 0;
 
-    // explicit_free_count = explict_list_check(lineno, explicit_free_count);
+    block_t* block_prev = heap_listp;
+    block_t* block_next;
 
-    // // if (explicit_free_count != implicit_free_count) {
-    // //     dbg_printf("explicit_free_count is not equal to implicit_free_count\n");
-    // //     return false;
-    // // }
-    // //dbg_printf("xixi %d\n", (int)get_size(heap_checker_head));
-    // dbg_printf("Correct heap in %d\n", lineno);
+    word_t* footer_prev;
+    word_t* header_prev;
+
+    void* payload_prev;
+
+    size_t size_prev;
+
+    while (get_size(block_prev) != 0) {
+        dbg_printf("entering while loop in heap check\n");
+        header_prev = &(block_prev->header);
+        block_next = find_next(block_prev);
+        footer_prev = find_prev_footer(block_next);
+        payload_prev = header_to_payload(block_prev);
+
+        /* check block address alignment */
+        if (check_aligned(payload_prev, lineno) == false) {
+            return false;
+        }
+        /* check if the payload pointer in heap */
+        if (check_in_heap((void *)payload_prev, lineno) == false) {
+            return false;
+        }
+        /* check min size */
+        size_prev = get_size(block_prev);
+        if (get_alloc(block_prev) == true) {
+            if (size_prev < min_block_size) {
+                printf("Address: %p : minimum block size requirement not satisfied in lineno: %d\n", payload_prev, lineno);
+                return false;
+            }
+        }
+        // size match in header and payload 
+        if (extract_size(*header_prev) != size_prev) {
+            printf("Address: %p : size in header unmatch block size in lineno: %d\n", payload_prev, lineno);
+            return false;
+        }
+        if (extract_alloc(*header_prev) != get_alloc(block_prev)) {
+            printf("Address: %p: allocate/free bit in one block unmatch in lineno: %d\n",payload_prev, lineno);
+            return false;
+        }
+        /* check footer header alignment */
+        if (size_prev % ALIGNMENT != 0) {
+            printf("Address: %p: Header footer not Double-Word Aligned in lineno: %d\n", payload_prev, lineno);
+            return false;
+        }
+        /* check header footer match */
+        if (*footer_prev != *header_prev) {
+            dbg_printf("Address: %p: Footer and Header unmatch in lineno: %d\n", payload_prev,lineno);
+            return false;
+        }
+
+        /* check coalesce */
+        if (get_alloc(block_prev) == false && get_alloc(block_next) == false) {
+            dbg_printf("two consecutive free blocks in the heap in lineno: %d\n", lineno);
+            return false;
+        }
+        if (get_alloc(block_prev) == false) {
+            implicit_free_count++;
+        }
+        block_prev = block_next;
+    }
+
+    explicit_free_count = explict_list_check(lineno, explicit_free_count);
+    /* check if both free-counts are equal */
+    if (explicit_free_count != implicit_free_count) {
+        dbg_printf("explicit_free_count is not equal to implicit_free_count\n");
+        return false;
+    }
+    dbg_printf("normally exit heap check\n");
     return true;
 }
 
 static int explict_list_check(int lineno, int explicit_free_count) {
-    // dbg_printf("entering explicit list check\n");
-    // block_t *pointer = free_listp;
+    dbg_printf("entering explicit list check\n");
+    block_t *pointer = free_listp_array[0];
 
-    // if (free_listp == NULL) {
-    //     dbg_printf("free_listp is NULL\n");
-    //     return explicit_free_count;
-    // }
-    // while (pointer != NULL) {
-    //     if (pointer->next != NULL && pointer->prev != NULL) {
-    //         if (pointer->prev->next != pointer->next->prev) {
-    //             dbg_printf("Address: %p: next/prev not consistent in lineno: %d\n",pointer, lineno);
-    //             return explicit_free_count;
-    //         }
-    //     }
-    //     if (check_in_heap((void *)pointer, lineno) == false) {
-    //         return explicit_free_count;
-    //     }
-    //     explicit_free_count++;
-    //     pointer = pointer->next;
-    // }
-    // dbg_printf("normally exit explict_list_check\n");
+    if (free_listp_array[0] == NULL) {
+        dbg_printf("free_listp is NULL\n");
+        return explicit_free_count;
+    }
+    while (pointer != NULL) {
+        if (pointer->next != NULL && pointer->prev != NULL) {
+            if (pointer->prev->next != pointer->next->prev) {
+                dbg_printf("Address: %p: next/prev not consistent in lineno: %d\n",pointer, lineno);
+                return explicit_free_count;
+            }
+        }
+        if (check_in_heap((void *)pointer, lineno) == false) {
+            return explicit_free_count;
+        }
+        explicit_free_count++;
+        pointer = pointer->next;
+    }
+    dbg_printf("normally exit explict_list_check\n");
     return explicit_free_count;
 }
 
