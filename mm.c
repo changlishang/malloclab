@@ -68,12 +68,18 @@ static const word_t size_mask = ~(word_t)0xF;
 
 
 static const word_t prev_alloc_mask = 0x2;
+static const word_t mini_mask = 0x4;
 
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 static size_t align(size_t x) {
     return ALIGNMENT * ((x+ALIGNMENT-1)/ALIGNMENT);
 }
+
+typedef struct block_2 {
+    word_t header;
+    struct block_2 *next;
+} block_t_2;
 
 typedef struct block
 {
@@ -98,6 +104,7 @@ static block_t *free_listp_array[LIST_NUM];
 static block_t *free_listp_array_tail[LIST_NUM];
 // static size_t lines[LIST_NUM] = {1, 70, 150, 300, 840, 1800};
 // static block_t *best_fit;
+static block_t_2 *mini_listp;
 
 /* Global variables */
 /* Pointer to first block */
@@ -112,7 +119,7 @@ static block_t *coalesce(block_t *block);
 
 static size_t max(size_t x, size_t y);
 static size_t round_up(size_t size, size_t n);
-static word_t pack(size_t size, bool alloc, bool prev_alloc);
+static word_t pack(size_t size, bool alloc, bool prev_alloc, bool mini);
 
 static size_t extract_size(word_t header);
 static size_t get_size(block_t *block);
@@ -123,8 +130,8 @@ static bool get_alloc(block_t *block);
 static bool extract_prev_alloc(word_t header);
 static bool get_prev_alloc(block_t *block);
 
-static void write_header(block_t *block, size_t size, bool alloc, bool prev_alloc);
-static void write_footer(block_t *block, size_t size, bool alloc, bool prev_alloc);
+static void write_header(block_t *block, size_t size, bool alloc, bool prev_alloc, bool mini);
+static void write_footer(block_t *block, size_t size, bool alloc, bool prev_alloc, bool mini);
 
 static block_t *payload_to_header(void *bp);
 static void *header_to_payload(block_t *block);
@@ -137,10 +144,18 @@ bool mm_checkheap(int lineno);
 
 static void remove_free_block(block_t* pointer);
 static void insert_free_block(block_t* pointer);
+static void insert_free_block_mini(block_t_2* pointer);
 static int explict_list_check(int lineno, int explict_list_check);
 static int get_number(size_t size);
 static void heap_printer(int lineno);
-
+static block_t_2 *find_fit_mini(size_t asize);
+static void place_mini(block_t_2 *block, size_t asize);
+static void *header_to_payload_mini(block_t_2 *block);
+static bool get_prev_mini(block_t *block);
+static bool extract_prev_mini(word_t word);
+static void remove_mini_free_block(block_t_2 *pointer);
+static bool is_curr_min(block_t *block);
+// static void *header_to_payload_mini_not(block_t *block);
 
 
 /*
@@ -160,8 +175,8 @@ bool mm_init(void)
         return false;
     }
     
-    start[0] = pack(0, true, true); // Prologue footer
-    start[1] = pack(0, true, true); // Epilogue header
+    start[0] = pack(0, true, true, false); // Prologue footer
+    start[1] = pack(0, true, true, false); // Epilogue header
     // Heap starts with first block header (epilogue)
     heap_listp = (block_t *) &(start[1]);
 
@@ -169,6 +184,9 @@ bool mm_init(void)
         free_listp_array[i] = NULL;
         free_listp_array_tail[i] = NULL;
     }
+
+    mini_listp = NULL;
+
     block_t* mm_init_block = extend_heap(chunksize);
     if (mm_init_block == NULL)
     {
@@ -192,12 +210,13 @@ bool mm_init(void)
  */
 void *malloc(size_t size) 
 {
-    dbg_printf("Malloc Size:  %ld\n", size);
+    printf("Malloc Size:  %ld\n", size);
     // heap_printer(__LINE__);
     dbg_requires(mm_checkheap);
     size_t asize;      // Adjusted block size
     size_t extendsize; // Amount to extend heap if no fit is found
     block_t *block;
+    // block_t_2 *block_mini;
     void *bp = NULL;
 
     if (heap_listp == NULL) // Initialize heap if it isn't initialized
@@ -213,16 +232,54 @@ void *malloc(size_t size)
     // Adjust block size to include overhead and to meet alignment requirements
     // asize = round_up(align(size + wsize), dsize);
     // printf("after around up\n");
-        //align block size
-    if( size <= dsize)
+    // align block size
+
+    if (size <= wsize)
     {
-        asize = 2*dsize;
+        asize = dsize;
     }
+    // else if(size <= dsize )
+    // {
+    //     asize = 2*dsize;
+    // }
     else
     {
-        asize = align(size + wsize);
+        asize = round_up((size + wsize), dsize);
     }
 
+    printf("asize: %zu\n", asize);
+    // if (asize == dsize) {
+    //     printf("asize == dsize in malloc\n");
+    //     block_mini = find_fit_mini(asize);
+    //     if (block_mini == NULL)
+    //     {
+    //         printf("find_fit_mini(asize) == null\n");
+    //         extendsize = max(asize, chunksize);
+    //         block = extend_heap(extendsize);
+
+    //         if (block == NULL) // extend_heap returns an error
+    //         {
+    //             return bp;
+    //         }
+
+    //         place(block, asize);
+    //         bp = header_to_payload(block);
+
+    //         printf("Malloc size %zd on address %p.\n", size, bp);
+    //         dbg_ensures(mm_checkheap);
+    //         // heap_printer(__LINE__);
+    //         return bp;
+    //     }
+
+    //     printf("find_fit_mini(asize) != null\n");
+    //     place_mini(block_mini, asize);
+    //     bp = header_to_payload_mini(block_mini);
+    //     dbg_ensures(mm_checkheap);
+    //     // heap_printer(__LINE__);
+    //     return bp;
+    // }
+
+    printf("asize != dsize in malloc\n");
     // Search the free list for a fit
     block = find_fit(asize);
 
@@ -230,9 +287,10 @@ void *malloc(size_t size)
     // If no fit is found, request more memory, and then and place the block
     if (block == NULL)
     {
+        printf("will extend heap\n");
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
-
+        printf("block after extend heap: %p\n", block);
         if (block == NULL) // extend_heap returns an error
         {
             return bp;
@@ -243,7 +301,8 @@ void *malloc(size_t size)
     place(block, asize);
     bp = header_to_payload(block);
 
-    // dbg_printf("Malloc size %zd on address %p.\n", size, bp);
+    printf("Malloc size %zd on address %p.\n", size, bp);
+    // mm_checkheap(304);
     dbg_ensures(mm_checkheap);
     // heap_printer(__LINE__);
     return bp;
@@ -255,7 +314,7 @@ void *malloc(size_t size)
  */
 void free(void *bp)
 {
-    dbg_printf("FREE: address: %p\n", bp);
+    printf("FREE: address: %p\n", bp);
     if (bp == NULL)
     {
         return;
@@ -265,12 +324,11 @@ void free(void *bp)
     size_t size = get_size(block);
 
     bool prev_alloc = get_prev_alloc(block);
-    write_header(block, size, false, prev_alloc);
-    write_footer(block, size, false, prev_alloc);
+    bool prev_mini = get_prev_mini(block);
+    write_header(block, size, false, prev_alloc, prev_mini);
+    write_footer(block, size, false, prev_alloc, prev_mini);
 
-    dbg_printf("process: free block:\n");
     coalesce(block);
-
 }
 /*
  * realloc: returns a pointer to an allocated region of at least size bytes:
@@ -369,25 +427,32 @@ static block_t *extend_heap(size_t size)
     block_t *block = payload_to_header(bp);
 
     bool prev_alloc = get_prev_alloc(block);
-    write_header(block, size, false, prev_alloc);
-    write_footer(block, size, false, prev_alloc);
+    bool prev_mini = get_prev_mini(block);
+    bool curr_mini = is_curr_min(block);
+    write_header(block, size, false, prev_alloc, prev_mini);
+    write_footer(block, size, false, prev_alloc, prev_mini);
     // Create new epilogue header
     block_t *block_next = find_next(block);
-    write_header(block_next, 0, true, false);
+    write_header(block_next, 0, true, false, curr_mini);
     // printf("extend finsih before coalesce\n");
     // Coalesce in case the previous block was free
     return coalesce(block);
 }
+
 
 /* Coalesce: Coalesces current block with previous and next blocks if either
  *           or both are unallocated; otherwise the block is not modified.
  *           Returns pointer to the coalesced block. After coalescing, the
  *           immediate contiguous previous and next blocks must be allocated.
  */
-static block_t *coalesce(block_t * block) 
+static block_t *coalesce(block_t *block) 
 {
+    printf("entering coalesce\n");
+    // bool curr_mini = is_curr_min(block);
+    bool prev_mini = get_prev_mini(block);
+    // bool is_mini = is_curr_min(block);
     block_t *block_next = find_next(block);
-
+    
     // bool prev_alloc = extract_alloc(*(find_prev_footer(block)));
     bool prev_alloc = get_prev_alloc(block);
     bool next_alloc = get_alloc(block_next);
@@ -395,51 +460,77 @@ static block_t *coalesce(block_t * block)
 
     if (prev_alloc && next_alloc)              // Case 1
     {
-        // dbg_printf("case1\n");
+        printf("case1\n");
+        // if (is_mini) {
+        //     // write_header(block, size, false, prev_alloc, prev_mini);
+        //     // write_footer(block, size, false, prev_alloc, prev_mini);
+        //     block_t_2 *block_mini = (block_t_2 *)block;
+        //     insert_free_block_mini(block_mini);
+        //     return block;
+        // }
+        // write_header(block, size, false, prev_alloc, prev_mini);
+        // write_footer(block, size, false, prev_alloc, prev_mini);
         insert_free_block(block);
         return block;
     }
 
     else if (prev_alloc && !next_alloc)        // Case 2
     {
-        // dbg_printf("case2\n");
+        printf("case2\n");
         size += get_size(block_next);
         remove_free_block(block_next);
-        write_header(block, size, false, prev_alloc);
-        write_footer(block, size, false, prev_alloc);
+        write_header(block, size, false, prev_alloc, prev_mini);
+        write_footer(block, size, false, prev_alloc, prev_mini);
     }
 
     else if (!prev_alloc && next_alloc)        // Case 3
     {
-        // dbg_printf("case3\n");
+        printf("case3\n");
+        // printf("block_address: %p\n", block);
+
         block_t *block_prev = find_prev(block);
+        printf("prev_block_address: %p\n", block_prev);
         size += get_size(block_prev);
+        printf("size: %zu\n", size);
         bool prev_prev_alloc = get_prev_alloc(block_prev);
+        bool prev_prev_mini = get_prev_mini(block_prev);
+
         remove_free_block(block_prev);
-        write_header(block_prev, size, false, prev_prev_alloc);
-        write_footer(block_prev, size, false, prev_prev_alloc);
+        write_header(block_prev, size, false, prev_prev_alloc, prev_prev_mini);
+        write_footer(block_prev, size, false, prev_prev_alloc, prev_prev_mini);
         block = block_prev;
     }
 
     else                                     // Case 4
     {
-        // dbg_printf("case4\n");
+        printf("case4\n");
         block_t *block_prev_2 = find_prev(block);
+        size += get_size(block_next) + get_size(block_prev_2);
         bool prev_prev_alloc = get_prev_alloc(block_prev_2);
+        bool prev_prev_mini = get_prev_mini(block_prev_2);
 
-        dbg_printf("prev block address: %p\n", block_prev_2);
-        dbg_printf("cuurent block address: %p\n", block);
         remove_free_block(block_prev_2);
         remove_free_block(block_next);
-        size += get_size(block_next) + get_size(block_prev_2);
-        write_header(block_prev_2, size, false, prev_prev_alloc);
-        write_footer(block_prev_2, size, false, prev_prev_alloc);
+        write_header(block_prev_2, size, false, prev_prev_alloc, prev_prev_mini);
+        write_footer(block_prev_2, size, false, prev_prev_alloc, prev_prev_mini);
         block = block_prev_2;
     }
     insert_free_block(block);   
     return block;
 }
 
+
+static void place_mini(block_t_2 *block, size_t asize)
+{
+    printf("entering place_mini\n");
+    block_t *block_normal = (block_t *)block;
+    bool prev_mini = get_prev_mini(block_normal);
+    remove_mini_free_block(block);
+
+    // block_t *block_normal = (block_t *)block;
+    write_header(block_normal, asize, true, true, prev_mini);
+    write_footer(block_normal, asize, true, true, prev_mini);
+}
 /*
  * place: Places block with size of asize at the start of bp. If the remaining
  *        size is at least the minimum block size, then split the block to the
@@ -449,33 +540,48 @@ static block_t *coalesce(block_t * block)
  */
 static void place(block_t *block, size_t asize)
 {
+    printf("entering place\n");
     size_t csize = get_size(block);
+    printf("csize: %zu\n", csize);
 
     remove_free_block(block);
-    
-    if ((csize - asize) >= min_block_size)
-    {
-        block_t *block_next;
-        write_header(block, asize, true, true);
-        write_footer(block, asize, true, true);
 
-        block_next = find_next(block);
+    bool prev_mini = get_prev_mini(block);
 
-        write_header(block_next, csize-asize, false, true);
-        write_footer(block_next, csize-asize, false, true);
-
-        insert_free_block(block_next);
+    if (asize == dsize && csize == dsize) {
+        block_t_2 *block_mini = (block_t_2*) block;
+        place_mini(block_mini, asize);
+        return;
     }
 
-    else
+    if ((csize - asize) >= dsize) {
+        // printf("(csize - asize) >= min_block_size\n");
+        block_t *block_next;
+        write_header(block, asize, true, true, prev_mini);
+        write_footer(block, asize, true, true, prev_mini);
+
+        block_next = find_next(block);
+        // printf("block_next adress: %p\n", block_next);
+        if (asize == dsize) {
+            write_header(block_next, csize-asize, false, true, true);
+            write_footer(block_next, csize-asize, false, true, true);
+        } else {
+            write_header(block_next, csize-asize, false, true, false);
+            write_footer(block_next, csize-asize, false, true, false);
+        }
+
+        // printf("block_next size: %zu\n", get_size(block_next));
+        insert_free_block(block_next);
+    }
+    else 
     { 
-        write_header(block, csize, true, true);
-        write_footer(block, csize, true, true);
+        write_header(block, csize, true, true, prev_mini);
+        write_footer(block, csize, true, true, prev_mini);
     }
 }
 
 static int get_number(size_t size) {
-    if (size < 64) {
+    if (size < 63) {
         return 0;
     }
     else if (size < 128) {
@@ -497,69 +603,108 @@ static int get_number(size_t size) {
         return 6;
     }
 } 
+
+static block_t_2 *find_fit_mini(size_t asize)
+{
+    if (mini_listp == NULL) {
+        return NULL;
+    }
+    return mini_listp;
+}
 /*
  * find_fit: Looks for a free block with at least asize bytes with
  *           first-fit policy. Returns NULL if none is found.
  */
 static block_t *find_fit(size_t asize)
 {
-    dbg_printf("entering find_fit\n");
+    printf("entering find fit\n");
+    if (asize == dsize) {
+        block_t_2 *block_mini = find_fit_mini(asize);
+        if (block_mini != NULL) {
+            block_t *block_mini_return = (block_t *)block_mini;
+            return block_mini_return;
+        }
+    }
     block_t *block;
 
-    int count = 0;
-    block_t *best_fit = NULL;
     for (int i = get_number(asize); i < LIST_NUM; ++i) {
         for (block = free_listp_array_tail[i]; block != NULL; block = block->prev) {
             if ((asize <= get_size(block))) {
-                count++;
-                if (count == 1) {
-                    best_fit = block;
-                } else if (get_size(block) < get_size(best_fit)) {
-                    best_fit = block;
-                }
-                return best_fit;
+                return block;
             }
         }
     }
 
-    dbg_printf("block : %p\n", block);
+    // printfblock : %p\n", block);
     return NULL; // no fit found
 }
 
+static void remove_mini_free_block(block_t_2 *pointer)
+{
+    block_t_2 *block_next = pointer->next;
+    if (block_next == NULL) {
+        mini_listp = NULL;
+    } else {
+        mini_listp = block_next;
+    }
+}
 /*
  * remove free blocks in from the free list
  */
 static void remove_free_block(block_t* pointer) {
-    dbg_printf("remove address: %p\n", pointer);
+    printf("remove address: %p\n", pointer);
+    size_t size = get_size(pointer);
+    if (size == dsize) {
+        block_t_2 *block_mini = (block_t_2 *)pointer;
+        remove_mini_free_block(block_mini);
+        return;
+    }
 
     block_t* block_prev = pointer->prev;
     block_t* block_next = pointer->next;
 
+    printf("block_prev: %p\n", block_prev);
+    printf("block_next: %p\n", block_next);
     int free_list_number = get_number(get_size(pointer));
 
     /* case 1: remove block when there is only one block in the list */
     if (block_prev == NULL && block_next == NULL) {
+        printf("remove case1\n");
         free_listp_array[free_list_number] = NULL;
         free_listp_array_tail[free_list_number] = NULL;
     } 
     /* Case 2: remove the top element of the list*/
     else if (block_prev == NULL && block_next != NULL) {
+        printf("remove case2\n");
         free_listp_array[free_list_number] = block_next;
         free_listp_array[free_list_number]->prev = NULL;
     }
     /*Case 3: remove the last element of the list */
     else if (block_prev != NULL && block_next == NULL) {
-        free_listp_array_tail[free_list_number] = block_prev;
+        printf("remove case3\n");
         block_prev->next = NULL;
+        free_listp_array_tail[free_list_number] = block_prev;
     }
     /*Case 4: remove the element in the middle*/
     else if (block_prev != NULL && block_next != NULL){
+        printf("remove case4\n");
         block_prev->next = block_next;
+        printf("step 1 finish\n");
         block_next->prev = block_prev;
+        pointer->prev = NULL;
+        pointer->next = NULL;
+        printf("remove case 4 finish \n");
     }
 }
 
 static void insert_free_block(block_t* pointer) {
+    printf("entering insert free block\n");
+    size_t size = get_size(pointer);
+    if (size == dsize) {
+        block_t_2 *block_mini = (block_t_2 *) pointer;
+        insert_free_block_mini(block_mini);
+        return;
+    }
     int free_list_number = get_number(get_size(pointer));
 
     if (free_listp_array[free_list_number] == NULL) {
@@ -567,6 +712,7 @@ static void insert_free_block(block_t* pointer) {
         free_listp_array_tail[free_list_number] = pointer;
         pointer->prev = NULL;
         pointer->next = NULL;
+        printf("create new free block list\n");
         return;
     }
     pointer->prev = NULL;
@@ -574,7 +720,18 @@ static void insert_free_block(block_t* pointer) {
     free_listp_array[free_list_number]->prev = pointer;
      /* update the free_listp */
     free_listp_array[free_list_number] = pointer;
+    printf("deal with old free block list\n");
+}
 
+static void insert_free_block_mini(block_t_2 *pointer) {
+    if (mini_listp == NULL) {
+        mini_listp = pointer;
+        mini_listp->next = NULL;
+        return;
+    }
+    pointer->next = mini_listp;
+     /* update the free_listp */
+    mini_listp = pointer;
 }
 
 /*
@@ -598,11 +755,12 @@ static size_t round_up(size_t size, size_t n)
  * pack: returns a header reflecting a specified size and its alloc status.
  *       If the block is allocated, the lowest bit is set to 1, and 0 otherwise.
  */
-static word_t pack(size_t size, bool alloc, bool prev_alloc)
+static word_t pack(size_t size, bool alloc, bool prev_alloc, bool prev_mini)
 {
     word_t word;
     word = alloc ? (size | 1) : size;
     word = prev_alloc ? (word | 2) : word;
+    word = prev_mini ? (word | 4) : word;
     return word;
 }
 
@@ -632,11 +790,12 @@ static size_t get_size(block_t *block)
 static word_t get_payload_size(block_t *block)
 {
     size_t asize = get_size(block);
-    bool alloc = get_alloc(block);
-    if (alloc) {
-        return asize - wsize;
-    }
-    return asize - dsize;  // <important> change dsize to wsize
+    // bool alloc = get_alloc(block);
+    // if (alloc) {
+    //     return asize - wsize;
+    // }
+    // return asize - dsize;  // <important> change dsize to wsize
+    return asize - wsize;
 }
 
 /*
@@ -651,6 +810,10 @@ static bool extract_alloc(word_t word)
 static bool extract_prev_alloc(word_t word) {
     return (bool)(word & prev_alloc_mask);
 }
+
+static bool extract_prev_mini(word_t word) {
+    return (bool)(word & mini_mask);
+}
 /*
  * get_alloc: returns true when the block is allocated based on the
  *            block header's lowest bit, and false otherwise.
@@ -664,31 +827,48 @@ static bool get_prev_alloc(block_t *block) {
     return extract_prev_alloc(block->header);
 }
 
+static bool get_prev_mini(block_t *block)
+{
+    return extract_prev_mini(block->header);
+}
 /*
  * write_header: given a block and its size and allocation status,
  *               writes an appropriate value to the block header.
  */
-static void write_header(block_t *block, size_t size, bool alloc, bool prev_alloc)
+static void write_header(block_t *block, size_t size, bool alloc, bool prev_alloc, bool prev_mini)
 {
-    block->header = pack(size, alloc, prev_alloc);
+    block->header = pack(size, alloc, prev_alloc, prev_mini);
 }
 
+static bool is_curr_min(block_t *block)
+{
+    if (get_size(block) == dsize) {
+        return true;
+    }
+    return false;
+}
 
 /*
  * write_footer: given a block and its size and allocation status,
  *               writes an appropriate value to the block footer by first
  *               computing the position of the footer.
  */
-static void write_footer(block_t *block, size_t size, bool alloc, bool prev_alloc)
+static void write_footer(block_t *block, size_t size, bool alloc, bool prev_alloc, bool prev_mini)
 {
-    if (!get_alloc(block)) {
+    if (!get_alloc(block) && size != dsize) {
         word_t *footerp = (word_t *)((block->payload) - 16 + get_size(block) - dsize);  /* pay attention to 16 and char() */ // <Important>
-        *footerp = pack(size, alloc, prev_alloc);
+        *footerp = pack(size, alloc, prev_alloc, prev_mini);
     }
+    bool mini_curr;
     block_t *block_next = find_next(block);
     size_t size_next = get_size(block_next);
     bool alloc_next = get_alloc(block_next);
-    write_header(block_next, size_next, alloc_next, alloc);
+    if (size == dsize) {
+        mini_curr = true;
+    } else {
+        mini_curr = false;
+    }
+    write_header(block_next, size_next, alloc_next, alloc, mini_curr);
 }
 
 /*
@@ -724,13 +904,14 @@ static word_t *find_prev_footer(block_t *block)
  */
 static block_t *find_prev(block_t *block)
 {
-    word_t *footerp = find_prev_footer(block);
-    // if (footerp == NULL) {
-    //     printf("finf prev: return null\n");
-    //     return NULL;
-    // }
-    size_t size = extract_size(*footerp);
-    return (block_t *)((char *)block - size);
+    bool is_mini = is_curr_min(block);
+    if (is_mini) {
+        return (block_t *)((char *)block - dsize);
+    } else {
+        word_t *footerp = find_prev_footer(block);
+        size_t size = extract_size(*footerp);
+        return (block_t *)((char *)block - size);
+    }
 }
 
 /*
@@ -746,9 +927,22 @@ static block_t *payload_to_header(void *bp)
  * header_to_payload: given a block pointer, returns a pointer to the
  *                    corresponding payload.
  */
+// static void *header_to_payload_mini_not(block_t *block)
+// {
+//     // block_t_2 *block_mini = (block_t_2 *) block;
+//     printf("header_to_payload_mini_no success\n");
+//     return (void *)(block->payload - 16); /* change block->payload to block->prev */ //<Important>//
+// }
+
 static void *header_to_payload(block_t *block)
 {
     return (void *)(block->payload - 16); /* change block->payload to block->prev */ //<Important>//
+}
+
+static void *header_to_payload_mini(block_t_2 *block)
+{
+    block_t *block_normal = (block_t *) block;
+    return (void *)(block_normal->payload - 16);
 }
 
 /*
